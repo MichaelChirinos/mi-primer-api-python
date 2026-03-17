@@ -52,7 +52,7 @@ def ia():
                     "content": pregunta
                 }
             ],
-            model="llama3-70b-8192",  # Modelo potente y gratis [citation:5]
+            model="llama-3.3-70b-versatile",  # Modelo potente y gratis [citation:5]
             temperature=0.7,
             max_tokens=500
         )
