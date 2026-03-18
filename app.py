@@ -5,6 +5,7 @@ import os
 import tempfile
 from werkzeug.utils import secure_filename
 import traceback
+import fitz  # PyMuPDF
 
 app = Flask(__name__)
 CORS(app)
@@ -18,7 +19,7 @@ else:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# Configuración de archivos permitido
+# Configuración de archivos permitidos
 ALLOWED_EXTENSIONS = {'pdf', 'xml'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
@@ -150,26 +151,25 @@ def procesar_archivo():
         
         if file_ext == 'pdf':
             try:
-                print("   Intentando importar PyPDF2...")
-                import PyPDF2
-                print("   ✅ PyPDF2 importado correctamente")
+                print("   Procesando PDF con PyMuPDF...")
                 
-                with open(temp_path, 'rb') as pdf_file:
-                    reader = PyPDF2.PdfReader(pdf_file)
-                    num_pages = len(reader.pages)
-                    print(f"   PDF tiene {num_pages} páginas")
-                    
-                    for i, page in enumerate(reader.pages):
-                        page_text = page.extract_text()
-                        texto_extraido += page_text
-                        print(f"   Página {i+1}: {len(page_text)} caracteres")
-                        
-            except ImportError as e:
-                print(f"   ERROR: No se pudo importar PyPDF2: {str(e)}")
-                print("   Asegúrate de tener PyPDF2 en requirements.txt")
-                return jsonify({'error': 'Error interno: falta PyPDF2'}), 500
+                # Abrir el PDF con PyMuPDF
+                doc = fitz.open(temp_path)
+                num_pages = len(doc)
+                print(f"   PDF tiene {num_pages} páginas")
+                
+                # Extraer texto de cada página
+                for page_num in range(num_pages):
+                    page = doc.load_page(page_num)
+                    page_text = page.get_text()
+                    texto_extraido += page_text
+                    print(f"   Página {page_num+1}: {len(page_text)} caracteres")
+                
+                doc.close()
+                print(f"   ✅ PDF procesado: {len(texto_extraido)} caracteres totales")
+                
             except Exception as e:
-                print(f"   ERROR al leer PDF: {str(e)}")
+                print(f"   ERROR al leer PDF con PyMuPDF: {str(e)}")
                 traceback.print_exc()
                 return jsonify({'error': f'Error al leer PDF: {str(e)}'}), 500
         
