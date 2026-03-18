@@ -29,18 +29,15 @@ def saludar():
 @app.route('/ia', methods=['POST'])
 def ia():
     try:
-        # 1. Recibir la pregunta desde Power Apps
         datos = request.get_json()
         pregunta = datos.get('pregunta', '')
         
         if not pregunta:
             return jsonify({'error': 'Falta la pregunta'}), 400
         
-        # 2. Verificar que la API key está configurada
         if not GROQ_API_KEY:
             return jsonify({'error': 'GROQ_API_KEY no está configurada'}), 500
         
-        # 3. Llamar a Groq API [citation:3][citation:6]
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -52,14 +49,13 @@ def ia():
                     "content": pregunta
                 }
             ],
-            model="llama-3.3-70b-versatile",  # Modelo potente y gratis [citation:5]
+            model="llama-3.3-70b-versatile",
             temperature=0.7,
             max_tokens=500
         )
         
         respuesta = chat_completion.choices[0].message.content
         
-        # 4. Devolver respuesta en JSON
         return jsonify({
             'respuesta': respuesta,
             'pregunta': pregunta,
