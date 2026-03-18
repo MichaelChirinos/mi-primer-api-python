@@ -145,15 +145,35 @@ def procesar_archivo():
             print(f"   Archivo guardado en: {temp_path}")
             print(f"   Tamaño en disco: {os.path.getsize(temp_path)} bytes")
         
+        # === DIAGNÓSTICO: Verificar los primeros bytes del archivo ===
+        print("\n🔍 DIAGNÓSTICO DE ARCHIVO:")
+        print(f"   - Ruta: {temp_path}")
+        print(f"   - Tamaño: {os.path.getsize(temp_path)} bytes")
+        
+        # Leer primeros 100 bytes en hexadecimal para identificar formato
+        with open(temp_path, 'rb') as f:
+            primeros_bytes = f.read(100)
+            print(f"   - Primeros 100 bytes (hex): {primeros_bytes.hex()}")
+            print(f"   - Primeros 100 bytes (ascii): {primeros_bytes[:50]}")  # Primeros 50 como texto
+        
+        # Detectar tipo real por magic bytes
+        if primeros_bytes.startswith(b'%PDF'):
+            print("   ✅ El archivo comienza con %PDF - ES UN PDF VÁLIDO")
+        elif primeros_bytes.startswith(b'PK'):
+            print("   ⚠️ El archivo parece un ZIP (podría ser PDF/A o PDF con recursos comprimidos)")
+        else:
+            print("   ❌ El archivo NO comienza con %PDF - PUEDE NO SER UN PDF VÁLIDO")
+        # ============================================================
+        
         # 5. Extraer texto según tipo
-        print(f"6. Extrayendo texto de archivo tipo: {file_ext}")
+        print(f"\n6. Extrayendo texto de archivo tipo: {file_ext}")
         texto_extraido = ""
         
         if file_ext == 'pdf':
             try:
                 print("   Procesando PDF con PyMuPDF...")
                 
-                # Abrir el PDF con PyMuPDF
+                # Intentar abrir el PDF
                 doc = fitz.open(temp_path)
                 num_pages = len(doc)
                 print(f"   PDF tiene {num_pages} páginas")
@@ -166,7 +186,7 @@ def procesar_archivo():
                     print(f"   Página {page_num+1}: {len(page_text)} caracteres")
                 
                 doc.close()
-                print(f"   ✅ PDF procesado: {len(texto_extraido)} caracteres totales")
+                print(f"   ✅ PDF procesado exitosamente: {len(texto_extraido)} caracteres totales")
                 
             except Exception as e:
                 print(f"   ERROR al leer PDF con PyMuPDF: {str(e)}")
