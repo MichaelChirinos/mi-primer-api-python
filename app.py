@@ -93,7 +93,6 @@ def procesar_archivo():
         if not allowed_file(file.filename):
             return jsonify({'error': 'Tipo de archivo no permitido. Solo PDF o XML'}), 400
         
-        # 3. Validar tamaño
         file.seek(0, os.SEEK_END)
         file_size = file.tell()
         file.seek(0)
