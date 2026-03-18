@@ -18,7 +18,7 @@ else:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# Configuración de archivos permitidos
+# Configuración de archivos permitido
 ALLOWED_EXTENSIONS = {'pdf', 'xml'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
