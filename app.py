@@ -131,39 +131,31 @@ def procesar_archivo():
             return jsonify({'error': f'Archivo demasiado grande. Máximo {MAX_FILE_SIZE//1024//1024}MB'}), 400
         print(f"   ✅ Tamaño válido")
         
-        # 4. Guardar temporalmente
+        # 4. Guardar temporalmente - VERSIÓN CORREGIDA
         print("5. Guardando archivo temporal...")
         filename = secure_filename(file.filename)
         file_ext = filename.rsplit('.', 1)[1].lower()
         print(f"   Nombre seguro: {filename}")
         print(f"   Extensión: {file_ext}")
         
-        # Crear archivo temporal
+        # Leer el contenido directamente del archivo
+        file_content = file.read()
+        print(f"   Tamaño del contenido leído: {len(file_content)} bytes")
+        
+        # Verificar los primeros bytes para confirmar que es PDF
+        if len(file_content) > 4:
+            primeros_bytes = file_content[:4]
+            if primeros_bytes == b'%PDF':
+                print("   ✅ El contenido comienza con %PDF - ES UN PDF VÁLIDO")
+            else:
+                print(f"   ⚠️ El contenido comienza con: {primeros_bytes}")
+        
+        # Crear archivo temporal y escribir el contenido directamente
         with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_ext}') as tmp:
-            file.save(tmp.name)
+            tmp.write(file_content)
             temp_path = tmp.name
             print(f"   Archivo guardado en: {temp_path}")
             print(f"   Tamaño en disco: {os.path.getsize(temp_path)} bytes")
-        
-        # === DIAGNÓSTICO: Verificar los primeros bytes del archivo ===
-        print("\n🔍 DIAGNÓSTICO DE ARCHIVO:")
-        print(f"   - Ruta: {temp_path}")
-        print(f"   - Tamaño: {os.path.getsize(temp_path)} bytes")
-        
-        # Leer primeros 100 bytes en hexadecimal para identificar formato
-        with open(temp_path, 'rb') as f:
-            primeros_bytes = f.read(100)
-            print(f"   - Primeros 100 bytes (hex): {primeros_bytes.hex()}")
-            print(f"   - Primeros 100 bytes (ascii): {primeros_bytes[:50]}")  # Primeros 50 como texto
-        
-        # Detectar tipo real por magic bytes
-        if primeros_bytes.startswith(b'%PDF'):
-            print("   ✅ El archivo comienza con %PDF - ES UN PDF VÁLIDO")
-        elif primeros_bytes.startswith(b'PK'):
-            print("   ⚠️ El archivo parece un ZIP (podría ser PDF/A o PDF con recursos comprimidos)")
-        else:
-            print("   ❌ El archivo NO comienza con %PDF - PUEDE NO SER UN PDF VÁLIDO")
-        # ============================================================
         
         # 5. Extraer texto según tipo
         print(f"\n6. Extrayendo texto de archivo tipo: {file_ext}")
