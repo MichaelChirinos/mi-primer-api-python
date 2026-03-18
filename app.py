@@ -1,139 +1,98 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from groq import Groq
-import os
-import tempfile
-from werkzeug.utils import secure_filename
-
-app = Flask(__name__)
-CORS(app)
-
-# Configurar Groq con la variable de entorno
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
-client = Groq(api_key=GROQ_API_KEY)
-
-@app.route('/saludar', methods=['POST'])
-def saludar():
-    try:
-        datos = request.get_json()
-        nombre = datos.get('nombre', '')
-        
-        if not nombre:
-            return jsonify({'error': 'Falta el nombre'}), 400
-            
-        return jsonify({
-            'recibido': nombre,
-            'saludo': f'¡Hola {nombre}! Python te saluda'
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/ia', methods=['POST'])
-def ia():
-    try:
-        datos = request.get_json()
-        pregunta = datos.get('pregunta', '')
-        
-        if not pregunta:
-            return jsonify({'error': 'Falta la pregunta'}), 400
-        
-        if not GROQ_API_KEY:
-            return jsonify({'error': 'GROQ_API_KEY no está configurada'}), 500
-        
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Eres un asistente útil que responde en español de forma clara y concisa."
-                },
-                {
-                    "role": "user",
-                    "content": pregunta
-                }
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
-            max_tokens=500
-        )
-        
-        respuesta = chat_completion.choices[0].message.content
-        
-        return jsonify({
-            'respuesta': respuesta,
-            'pregunta': pregunta,
-            'modelo': 'llama3-70b-8192'
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-@app.route('/', methods=['GET'])
-def home():
-    return "API funcionando con Groq! Endpoints: /saludar (POST) y /ia (POST)"
-
-# Configuración de archivos permitidos
-ALLOWED_EXTENSIONS = {'pdf', 'xml'}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 @app.route('/procesar-archivo', methods=['POST'])
 def procesar_archivo():
+    print("=== INICIO DE PETICIÓN /procesar-archivo ===")
+    print(f"Headers: {request.headers}")
+    print(f"Files keys: {request.files.keys()}")
+    print(f"Form keys: {request.form.keys()}")
+    
     temp_path = None
     try:
         # 1. Verificar que viene un archivo
+        print("Verificando archivo en request...")
         if 'archivo' not in request.files:
+            print("ERROR: No se encontró 'archivo' en request.files")
             return jsonify({'error': 'No se envió ningún archivo'}), 400
         
         file = request.files['archivo']
+        print(f"Archivo recibido: {file.filename}")
+        print(f"Tamaño: {file.content_length}")
+        print(f"Content-Type: {file.content_type}")
+        
         if file.filename == '':
+            print("ERROR: Nombre de archivo vacío")
             return jsonify({'error': 'Nombre de archivo vacío'}), 400
         
         # 2. Validar extensión
+        print("Validando extensión...")
         if not allowed_file(file.filename):
+            print(f"ERROR: Extensión no permitida: {file.filename}")
             return jsonify({'error': 'Tipo de archivo no permitido. Solo PDF o XML'}), 400
         
+        # 3. Validar tamaño
+        print("Validando tamaño...")
         file.seek(0, os.SEEK_END)
         file_size = file.tell()
         file.seek(0)
+        print(f"Tamaño: {file_size} bytes")
         if file_size > MAX_FILE_SIZE:
+            print(f"ERROR: Archivo demasiado grande: {file_size}")
             return jsonify({'error': f'Archivo demasiado grande. Máximo {MAX_FILE_SIZE//1024//1024}MB'}), 400
         
         # 4. Guardar temporalmente
+        print("Guardando archivo temporal...")
         filename = secure_filename(file.filename)
         file_ext = filename.rsplit('.', 1)[1].lower()
+        print(f"Nombre seguro: {filename}, extensión: {file_ext}")
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_ext}') as tmp:
             file.save(tmp.name)
             temp_path = tmp.name
+            print(f"Archivo guardado en: {temp_path}")
         
         # 5. Extraer texto según tipo
+        print(f"Extrayendo texto de archivo tipo: {file_ext}")
         texto_extraido = ""
         
         if file_ext == 'pdf':
             try:
+                print("Intentando importar PyPDF2...")
                 import PyPDF2
+                print("PyPDF2 importado correctamente")
+                
                 with open(temp_path, 'rb') as pdf_file:
                     reader = PyPDF2.PdfReader(pdf_file)
-                    for page in reader.pages:
-                        texto_extraido += page.extract_text()
+                    num_pages = len(reader.pages)
+                    print(f"PDF tiene {num_pages} páginas")
+                    
+                    for i, page in enumerate(reader.pages):
+                        page_text = page.extract_text()
+                        texto_extraido += page_text
+                        print(f"Página {i+1}: {len(page_text)} caracteres")
+                        
             except Exception as e:
+                print(f"ERROR al leer PDF: {str(e)}")
                 return jsonify({'error': f'Error al leer PDF: {str(e)}'}), 500
         
         elif file_ext == 'xml':
             try:
+                print("Leyendo archivo XML...")
                 with open(temp_path, 'r', encoding='utf-8') as xml_file:
                     texto_extraido = xml_file.read()
+                    print(f"XML leído: {len(texto_extraido)} caracteres")
             except Exception as e:
+                print(f"ERROR al leer XML: {str(e)}")
                 return jsonify({'error': f'Error al leer XML: {str(e)}'}), 500
         
         if not texto_extraido.strip():
+            print("ERROR: No se pudo extraer texto del archivo")
             return jsonify({'error': 'No se pudo extraer texto del archivo'}), 400
         
-        # 6. Limitar texto (Groq tiene límites)
-        texto_limitado = texto_extraido[:10000]  # 10k caracteres máx
+        # 6. Limitar texto
+        texto_limitado = texto_extraido[:10000]
+        print(f"Texto limitado: {len(texto_limitado)} caracteres")
         
-        # 7. Enviar a Groq para análisis
+        # 7. Enviar a Groq
+        print("Enviando a Groq...")
         pregunta_analisis = f"""
         Analiza el siguiente contenido de archivo y proporciona un resumen estructurado.
         
@@ -149,26 +108,32 @@ def procesar_archivo():
         3. Si es XML, muestra la estructura principal
         """
         
-        # Usar el cliente de Groq que ya tienes
-        completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Eres un asistente especializado en analizar archivos PDF y XML."
-                },
-                {
-                    "role": "user",
-                    "content": pregunta_analisis
-                }
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
-            max_tokens=1000
-        )
-        
-        resultado = completion.choices[0].message.content
+        try:
+            completion = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Eres un asistente especializado en analizar archivos PDF y XML."
+                    },
+                    {
+                        "role": "user",
+                        "content": pregunta_analisis
+                    }
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.7,
+                max_tokens=1000
+            )
+            
+            resultado = completion.choices[0].message.content
+            print(f"Respuesta de Groq: {len(resultado)} caracteres")
+            
+        except Exception as e:
+            print(f"ERROR al llamar a Groq: {str(e)}")
+            return jsonify({'error': f'Error en Groq: {str(e)}'}), 500
         
         # 8. Devolver resultado
+        print("=== PETICIÓN COMPLETADA EXITOSAMENTE ===")
         return jsonify({
             'resultado': resultado,
             'archivo': filename,
@@ -177,16 +142,15 @@ def procesar_archivo():
         })
         
     except Exception as e:
+        print(f"ERROR GENERAL NO CAPTURADO: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     
     finally:
-        # Limpiar archivo temporal
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-            except:
-                pass
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+                print(f"Archivo temporal eliminado: {temp_path}")
+            except Exception as e:
+                print(f"Error al eliminar archivo temporal: {e}")
