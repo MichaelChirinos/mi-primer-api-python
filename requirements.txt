@@ -3,3 +3,4 @@ flask-cors
 gunicorn
 groq
 PyPDF2
+werkzeug
