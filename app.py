@@ -6,6 +6,7 @@ import tempfile
 from werkzeug.utils import secure_filename
 import traceback
 import fitz  # PyMuPDF
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -26,6 +27,9 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# ============================================
+# ENDPOINT 1: SALUDO (original)
+# ============================================
 @app.route('/saludar', methods=['POST'])
 def saludar():
     try:
@@ -44,6 +48,9 @@ def saludar():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+# ============================================
+# ENDPOINT 2: IA (preguntas)
+# ============================================
 @app.route('/ia', methods=['POST'])
 def ia():
     try:
@@ -85,10 +92,9 @@ def ia():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/', methods=['GET'])
-def home():
-    return "API funcionando con Groq! Endpoints: /saludar (POST), /ia (POST) y /procesar-archivo (POST)"
-
+# ============================================
+# ENDPOINT 3: PROCESAR ARCHIVO INDIVIDUAL (el que ya tenías)
+# ============================================
 @app.route('/procesar-archivo', methods=['POST'])
 def procesar_archivo():
     print("\n=== NUEVA PETICIÓN A /procesar-archivo ===")
@@ -131,7 +137,7 @@ def procesar_archivo():
             return jsonify({'error': f'Archivo demasiado grande. Máximo {MAX_FILE_SIZE//1024//1024}MB'}), 400
         print(f"   ✅ Tamaño válido")
         
-        # 4. Guardar temporalmente - VERSIÓN CORREGIDA
+        # 4. Guardar temporalmente
         print("5. Guardando archivo temporal...")
         filename = secure_filename(file.filename)
         file_ext = filename.rsplit('.', 1)[1].lower()
@@ -142,20 +148,14 @@ def procesar_archivo():
         file_content = file.read()
         print(f"   Tamaño del contenido leído: {len(file_content)} bytes")
         
-        # Verificar los primeros bytes para confirmar que es PDF
-        if len(file_content) > 4:
-            primeros_bytes = file_content[:4]
-            if primeros_bytes == b'%PDF':
-                print("   ✅ El contenido comienza con %PDF - ES UN PDF VÁLIDO")
-            else:
-                print(f"   ⚠️ El contenido comienza con: {primeros_bytes}")
-        
-        # Crear archivo temporal y escribir el contenido directamente
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_ext}') as tmp:
-            tmp.write(file_content)
+        # Crear archivo temporal y escribir el contenido
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_ext}', mode='wb') as tmp:
+            bytes_escritos = tmp.write(file_content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
             temp_path = tmp.name
+            print(f"   Bytes escritos: {bytes_escritos}")
             print(f"   Archivo guardado en: {temp_path}")
-            print(f"   Tamaño en disco: {os.path.getsize(temp_path)} bytes")
         
         # 5. Extraer texto según tipo
         print(f"\n6. Extrayendo texto de archivo tipo: {file_ext}")
@@ -164,13 +164,10 @@ def procesar_archivo():
         if file_ext == 'pdf':
             try:
                 print("   Procesando PDF con PyMuPDF...")
-                
-                # Intentar abrir el PDF
                 doc = fitz.open(temp_path)
                 num_pages = len(doc)
                 print(f"   PDF tiene {num_pages} páginas")
                 
-                # Extraer texto de cada página
                 for page_num in range(num_pages):
                     page = doc.load_page(page_num)
                     page_text = page.get_text()
@@ -178,10 +175,10 @@ def procesar_archivo():
                     print(f"   Página {page_num+1}: {len(page_text)} caracteres")
                 
                 doc.close()
-                print(f"   ✅ PDF procesado exitosamente: {len(texto_extraido)} caracteres totales")
+                print(f"   ✅ PDF procesado: {len(texto_extraido)} caracteres totales")
                 
             except Exception as e:
-                print(f"   ERROR al leer PDF con PyMuPDF: {str(e)}")
+                print(f"   ERROR al leer PDF: {str(e)}")
                 traceback.print_exc()
                 return jsonify({'error': f'Error al leer PDF: {str(e)}'}), 500
         
@@ -202,11 +199,11 @@ def procesar_archivo():
         
         print(f"   ✅ Texto extraído: {len(texto_extraido)} caracteres")
         
-        # 6. Limitar texto (Groq tiene límites)
-        texto_limitado = texto_extraido[:10000]  # 10k caracteres máx
+        # 6. Limitar texto
+        texto_limitado = texto_extraido[:10000]
         print(f"7. Texto limitado a {len(texto_limitado)} caracteres")
         
-        # 7. Enviar a Groq para análisis
+        # 7. Enviar a Groq
         print("8. Enviando a Groq para análisis...")
         pregunta_analisis = f"""
         Analiza el siguiente contenido de archivo y proporciona un resumen estructurado.
@@ -220,42 +217,22 @@ def procesar_archivo():
         Por favor, proporciona:
         1. Un resumen breve del contenido
         2. Los puntos clave o datos más importantes
-        3. Si es XML, muestra la estructura principal
         """
         
-        try:
-            # Verificar que el cliente Groq existe
-            if not client:
-                print("   ERROR: El cliente Groq no está inicializado")
-                return jsonify({'error': 'Cliente Groq no disponible'}), 500
-            
-            print("   Llamando a Groq API...")
-            completion = client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Eres un asistente especializado en analizar archivos PDF y XML."
-                    },
-                    {
-                        "role": "user",
-                        "content": pregunta_analisis
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
-                temperature=0.7,
-                max_tokens=1000
-            )
-            
-            resultado = completion.choices[0].message.content
-            print(f"   ✅ Respuesta de Groq: {len(resultado)} caracteres")
-            
-        except Exception as e:
-            print(f"   ERROR al llamar a Groq: {str(e)}")
-            traceback.print_exc()
-            return jsonify({'error': f'Error en Groq: {str(e)}'}), 500
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "Eres un asistente especializado en analizar archivos PDF y XML."},
+                {"role": "user", "content": pregunta_analisis}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
+            max_tokens=1000
+        )
+        
+        resultado = completion.choices[0].message.content
+        print(f"   ✅ Respuesta de Groq: {len(resultado)} caracteres")
         
         # 8. Devolver resultado
-        print("9. Devolviendo respuesta exitosa")
         print("=== PETICIÓN COMPLETADA EXITOSAMENTE ===\n")
         return jsonify({
             'resultado': resultado,
@@ -265,18 +242,178 @@ def procesar_archivo():
         })
         
     except Exception as e:
-        print(f"ERROR GENERAL NO CAPTURADO: {str(e)}")
+        print(f"ERROR GENERAL: {str(e)}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     
     finally:
-        # Limpiar archivo temporal
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
                 print(f"✅ Archivo temporal eliminado: {temp_path}")
             except Exception as e:
                 print(f"⚠️ Error al eliminar archivo temporal: {e}")
+
+# ============================================
+# ENDPOINT 4: COMPARAR PDF vs XML (NUEVO)
+# ============================================
+@app.route('/comparar', methods=['POST'])
+def comparar():
+    print("\n=== NUEVA PETICIÓN A /comparar ===")
+    print(f"Headers recibidos: {dict(request.headers)}")
+    print(f"Files keys: {list(request.files.keys())}")
+    
+    temp_paths = []
+    try:
+        # Verificar que vienen ambos archivos
+        if 'pdf' not in request.files:
+            return jsonify({'error': 'No se encontró el archivo PDF'}), 400
+        if 'xml' not in request.files:
+            return jsonify({'error': 'No se encontró el archivo XML'}), 400
+        
+        pdf_file = request.files['pdf']
+        xml_file = request.files['xml']
+        
+        print(f"PDF recibido: {pdf_file.filename}")
+        print(f"XML recibido: {xml_file.filename}")
+        
+        # Validar extensiones
+        if not pdf_file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'El primer archivo debe ser PDF'}), 400
+        if not xml_file.filename.lower().endswith('.xml'):
+            return jsonify({'error': 'El segundo archivo debe ser XML'}), 400
+        
+        # Leer contenidos
+        pdf_content = pdf_file.read()
+        xml_content = xml_file.read()
+        
+        print(f"Tamaño PDF: {len(pdf_content)} bytes")
+        print(f"Tamaño XML: {len(xml_content)} bytes")
+        
+        # Guardar PDF temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf', mode='wb') as tmp:
+            tmp.write(pdf_content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            pdf_path = tmp.name
+            temp_paths.append(pdf_path)
+            print(f"PDF guardado en: {pdf_path}")
+        
+        # Guardar XML temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xml', mode='wb') as tmp:
+            tmp.write(xml_content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            xml_path = tmp.name
+            temp_paths.append(xml_path)
+            print(f"XML guardado en: {xml_path}")
+        
+        # Extraer texto del PDF
+        print("\nExtrayendo texto del PDF...")
+        pdf_text = ""
+        try:
+            doc = fitz.open(pdf_path)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                pdf_text += page.get_text()
+            doc.close()
+            print(f"PDF extraído: {len(pdf_text)} caracteres")
+        except Exception as e:
+            print(f"Error en PDF: {e}")
+            return jsonify({'error': f'Error al leer PDF: {str(e)}'}), 500
+        
+        # Extraer texto del XML
+        print("Extrayendo texto del XML...")
+        xml_text = ""
+        try:
+            with open(xml_path, 'r', encoding='utf-8') as f:
+                xml_text = f.read()
+            print(f"XML extraído: {len(xml_text)} caracteres")
+        except Exception as e:
+            print(f"Error en XML: {e}")
+            return jsonify({'error': f'Error al leer XML: {str(e)}'}), 500
+        
+        # Limitar textos
+        pdf_limitado = pdf_text[:8000]
+        xml_limitado = xml_text[:8000]
+        
+        # Prompt para comparación
+        prompt = f"""
+        ACTÚA COMO UN AUDITOR ESPECIALIZADO EN FACTURACIÓN ELECTRÓNICA.
+        
+        Compara la siguiente factura en dos formatos: PDF (documento visual) y XML (datos estructurados).
+        
+        === FACTURA EN FORMATO PDF ===
+        {pdf_limitado}
+        
+        === FACTURA EN FORMATO XML ===
+        {xml_limitado}
+        
+        INSTRUCCIONES:
+        1. Identifica los campos clave: RUC del emisor, RUC del cliente, número de factura, fecha, monto total, IGV, etc.
+        2. Para cada campo, indica si COINCIDEN o son DIFERENTES.
+        3. Si hay diferencias, muestra el valor en PDF vs el valor en XML.
+        4. Da un veredicto final: ¿Los archivos corresponden a la misma factura? ¿Hay discrepancias graves?
+        
+        FORMATO DE RESPUESTA (MARKDOWN):
+        ## 📊 RESUMEN DE COMPARACIÓN
+        - Archivo PDF: {pdf_file.filename}
+        - Archivo XML: {xml_file.filename}
+        
+        ## ✅ CAMPOS QUE COINCIDEN
+        * Campo: valor
+        
+        ## ❌ DISCREPANCIAS ENCONTRADAS
+        * Campo: PDF dice "X", XML dice "Y"
+        
+        ## ⚠️ VEREDICTO FINAL
+        [Análisis concluyente]
+        """
+        
+        # Llamar a Groq
+        print("\nLlamando a Groq para comparación...")
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "Eres un auditor experto en facturación electrónica."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+            max_tokens=2000
+        )
+        
+        resultado = completion.choices[0].message.content
+        print(f"✅ Comparación completada: {len(resultado)} caracteres")
+        
+        # Devolver resultado
+        return jsonify({
+            'resultado': resultado,
+            'pdf': pdf_file.filename,
+            'xml': xml_file.filename,
+            'fecha': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"ERROR GENERAL: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
+    finally:
+        # Limpiar archivos temporales
+        for path in temp_paths:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                    print(f"✅ Archivo temporal eliminado: {path}")
+                except:
+                    pass
+
+# ============================================
+# ENDPOINT 5: PÁGINA PRINCIPAL
+# ============================================
+@app.route('/', methods=['GET'])
+def home():
+    return "API funcionando con Groq! Endpoints disponibles: /saludar (POST), /ia (POST), /procesar-archivo (POST), /comparar (POST)"
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
