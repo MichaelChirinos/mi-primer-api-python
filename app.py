@@ -338,50 +338,58 @@ def comparar():
         xml_limitado = xml_text[:8000]
         
         # Prompt para comparación
-        prompt = f"""
-        ACTÚA COMO UN AUDITOR ESPECIALIZADO EN FACTURACIÓN ELECTRÓNICA.
-        
-        Compara la siguiente factura en dos formatos: PDF (documento visual) y XML (datos estructurados).
-        
-        === FACTURA EN FORMATO PDF ===
-        {pdf_limitado}
-        
-        === FACTURA EN FORMATO XML ===
-        {xml_limitado}
-        
-        INSTRUCCIONES:
-        1. Identifica los campos clave: RUC del emisor, RUC del cliente, número de factura, fecha, monto total, IGV, etc.
-        2. Para cada campo, indica si COINCIDEN o son DIFERENTES.
-        3. Si hay diferencias, muestra el valor en PDF vs el valor en XML.
-        4. Da un veredicto final: ¿Los archivos corresponden a la misma factura? ¿Hay discrepancias graves?
-        
-        FORMATO DE RESPUESTA (MARKDOWN):
-        ## 📊 RESUMEN DE COMPARACIÓN
-        - Archivo PDF: {pdf_file.filename}
-        - Archivo XML: {xml_file.filename}
-        
-        ## ✅ CAMPOS QUE COINCIDEN
-        * Campo: valor
-        
-        ## ❌ DISCREPANCIAS ENCONTRADAS
-        * Campo: PDF dice "X", XML dice "Y"
-        
-        ## ⚠️ VEREDICTO FINAL
-        [Análisis concluyente]
-        """
-        
-        # Llamar a Groq
-        print("\nLlamando a Groq para comparación...")
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "Eres un auditor experto en facturación electrónica."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.2,
-            max_tokens=2000
-        )
-        
+        # ... dentro de def comparar() ...
+
+# 1. Bajamos la temperatura al mínimo absoluto para evitar "creatividad"
+# 2. Cambiamos el prompt para que sea más estricto
+
+prompt = f"""
+SÉ UN AUDITOR DE CUMPLIMIENTO FISCAL EXTREMADAMENTE ESTRICTO.
+TU OBJETIVO ES ENCONTRAR DIFERENCIAS ENTRE EL PDF Y EL XML.
+
+=== TEXTO EXTRAÍDO DEL PDF ===
+{pdf_limitado}
+
+=== CONTENIDO DEL XML ===
+{xml_limitado}
+
+PASOS OBLIGATORIOS:
+1. Extrae los siguientes datos de AMBOS formatos: RUC Emisor, RUC Receptor, Serie-Número, Fecha Emisión, Moneda, Monto Total, IGV.
+2. Compara los valores exactos. Incluso una diferencia de 0.01 o una letra es una DISCREPANCIA.
+3. Si un dato falta en uno de los dos, márcalo como DISCREPANCIA.
+
+FORMATO DE RESPUESTA:
+## 📊 RESUMEN DE COMPARACIÓN
+[Breve intro]
+
+## 📋 TABLA DE EXTRACCIÓN
+| Campo | Valor en PDF | Valor en XML | ¿Coincide? |
+|-------|--------------|--------------|------------|
+| RUC Emisor | ... | ... | [SÍ/NO] |
+| Monto Total | ... | ... | [SÍ/NO] |
+... (sigue con todos los campos clave)
+
+## ❌ DISCREPANCIAS DETALLADAS
+- Si no hay, escribe: "No se encontraron discrepancias".
+- Si hay, descríbelas de forma técnica.
+
+## ⚠️ VEREDICTO FINAL
+[RECHAZADO/APROBADO] + Justificación.
+"""
+
+# Modifica la llamada a Groq:
+completion = client.chat.completions.create(
+    messages=[
+        {
+            "role": "system", 
+            "content": "Eres un auditor forense de facturas. No ignoras ningún detalle por pequeño que sea. Eres crítico y desconfiado."
+        },
+        {"role": "user", "content": prompt}
+    ],
+    model="llama-3.3-70b-versatile",
+    temperature=0.0,  # <-- CAMBIO CLAVE: 0.0 para máxima precisión
+    max_tokens=2000
+)
         resultado = completion.choices[0].message.content
         print(f"✅ Comparación completada: {len(resultado)} caracteres")
         
