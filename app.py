@@ -93,7 +93,7 @@ def ia():
         return jsonify({'error': str(e)}), 500
 
 # ============================================
-# ENDPOINT 3: PROCESAR ARCHIVO INDIVIDUAL (el que ya tenías)
+# ENDPOINT 3: PROCESAR ARCHIVO INDIVIDUAL
 # ============================================
 @app.route('/procesar-archivo', methods=['POST'])
 def procesar_archivo():
@@ -255,7 +255,7 @@ def procesar_archivo():
                 print(f"⚠️ Error al eliminar archivo temporal: {e}")
 
 # ============================================
-# ENDPOINT 4: COMPARAR PDF vs XML (NUEVO)
+# ENDPOINT 4: COMPARAR PDF vs XML (MEJORADO)
 # ============================================
 @app.route('/comparar', methods=['POST'])
 def comparar():
@@ -337,59 +337,94 @@ def comparar():
         pdf_limitado = pdf_text[:8000]
         xml_limitado = xml_text[:8000]
         
-        # Prompt para comparación
-        # ... dentro de def comparar() ...
+        # ============================================================
+        # PROMPT MEJORADO (más estructurado y con instrucciones claras)
+        # ============================================================
+        prompt = f"""
+        Eres un auditor especializado en facturación electrónica con 15 años de experiencia. Tu tarea es comparar una factura en formato PDF (visual) y su correspondiente XML (datos estructurados).
 
-# 1. Bajamos la temperatura al mínimo absoluto para evitar "creatividad"
-# 2. Cambiamos el prompt para que sea más estricto
+        ### ARCHIVOS A COMPARAR
+        - **PDF**: {pdf_file.filename}
+        - **XML**: {xml_file.filename}
 
-prompt = f"""
-SÉ UN AUDITOR DE CUMPLIMIENTO FISCAL EXTREMADAMENTE ESTRICTO.
-TU OBJETIVO ES ENCONTRAR DIFERENCIAS ENTRE EL PDF Y EL XML.
+        ### CONTENIDO EXTRAÍDO
+        === PDF ===
+        {pdf_limitado}
+        
+        === XML ===
+        {xml_limitado}
 
-=== TEXTO EXTRAÍDO DEL PDF ===
-{pdf_limitado}
+        ### INSTRUCCIONES ESTRICTAS
+        Realiza una comparación exhaustiva siguiendo este orden:
 
-=== CONTENIDO DEL XML ===
-{xml_limitado}
+        1. **CAMPOS CLAVE A VERIFICAR** (obligatorio):
+           - RUC del emisor
+           - RUC del receptor/cliente
+           - Número de factura
+           - Fecha de emisión
+           - Fecha de vencimiento (si existe)
+           - Moneda
+           - Total valor de venta (subtotal)
+           - IGV (monto de impuesto)
+           - Importe total
 
-PASOS OBLIGATORIOS:
-1. Extrae los siguientes datos de AMBOS formatos: RUC Emisor, RUC Receptor, Serie-Número, Fecha Emisión, Moneda, Monto Total, IGV.
-2. Compara los valores exactos. Incluso una diferencia de 0.01 o una letra es una DISCREPANCIA.
-3. Si un dato falta en uno de los dos, márcalo como DISCREPANCIA.
+        2. **POR CADA CAMPO**, indica:
+           - ✅ **Coincidencia**: si el valor es el mismo en ambos formatos
+           - ❌ **Discrepancia**: si los valores difieren (muestra PDF vs XML)
 
-FORMATO DE RESPUESTA:
-## 📊 RESUMEN DE COMPARACIÓN
-[Breve intro]
+        3. **DISCREPANCIAS GRAVES**:
+           - Si algún campo obligatorio no existe en alguno de los formatos
+           - Si hay diferencias en el total o IGV (mayores a 0.01 por redondeo)
+           - Si los RUC no coinciden (esto invalida la factura)
 
-## 📋 TABLA DE EXTRACCIÓN
-| Campo | Valor en PDF | Valor en XML | ¿Coincide? |
-|-------|--------------|--------------|------------|
-| RUC Emisor | ... | ... | [SÍ/NO] |
-| Monto Total | ... | ... | [SÍ/NO] |
-... (sigue con todos los campos clave)
+        4. **FORMATO DE RESPUESTA** (usar exactamente este formato):
 
-## ❌ DISCREPANCIAS DETALLADAS
-- Si no hay, escribe: "No se encontraron discrepancias".
-- Si hay, descríbelas de forma técnica.
+        ## 📊 RESUMEN DE COMPARACIÓN
+        - Archivo PDF: {pdf_file.filename}
+        - Archivo XML: {xml_file.filename}
+        - Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-## ⚠️ VEREDICTO FINAL
-[RECHAZADO/APROBADO] + Justificación.
-"""
+        ## ✅ CAMPOS QUE COINCIDEN
+        | Campo | Valor |
+        |-------|-------|
+        | RUC Emisor | [valor] |
+        | RUC Cliente | [valor] |
+        | Número Factura | [valor] |
+        | Fecha Emisión | [valor] |
+        | Moneda | [valor] |
+        | Total Venta | [valor] |
+        | IGV | [valor] |
+        | Importe Total | [valor] |
 
-# Modifica la llamada a Groq:
-completion = client.chat.completions.create(
-    messages=[
-        {
-            "role": "system", 
-            "content": "Eres un auditor forense de facturas. No ignoras ningún detalle por pequeño que sea. Eres crítico y desconfiado."
-        },
-        {"role": "user", "content": prompt}
-    ],
-    model="llama-3.3-70b-versatile",
-    temperature=0.0,  # <-- CAMBIO CLAVE: 0.0 para máxima precisión
-    max_tokens=2000
-)
+        ## ❌ DISCREPANCIAS ENCONTRADAS
+        | Campo | PDF dice | XML dice |
+        |-------|----------|----------|
+        | [campo] | [valor PDF] | [valor XML] |
+
+        ## 📌 CAMPOS FALTANTES
+        - [Campo 1]: presente en [PDF/XML], ausente en [XML/PDF]
+
+        ## 🏁 VEREDICTO FINAL
+        [Conclusión clara y concisa. ¿Son la misma factura? ¿Hay discrepancias graves? ¿Se puede aprobar?]
+
+        ### ADVERTENCIA
+        - Si hay discrepancia en RUC del emisor, el veredicto debe ser "RECHAZADA - RUC no coincide"
+        - Si hay diferencia en total > 1.00, el veredicto debe ser "REVISAR - Diferencia en monto"
+        - Si todo coincide, el veredicto debe ser "APROBADA - Documentos consistentes"
+        """
+        
+        # Llamar a Groq con temperatura más alta (0.5) para mejor razonamiento
+        print("\nLlamando a Groq para comparación...")
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "Eres un auditor experto en facturación electrónica. Responde ÚNICAMENTE en español. Usa formato de tabla para campos que coinciden y discrepancias. Sé preciso y conciso."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.5,  # Subido de 0.2 a 0.5 para mejor razonamiento
+            max_tokens=2500   # Aumentado para respuestas más detalladas
+        )
+        
         resultado = completion.choices[0].message.content
         print(f"✅ Comparación completada: {len(resultado)} caracteres")
         
