@@ -338,7 +338,7 @@ def comparar():
         xml_limitado = xml_text[:8000]
         
         # ============================================================
-        # PROMPT MEJORADO (más estructurado y con instrucciones claras)
+        # PROMPT CON FORMATO LINEAL (SIN TABLAS)
         # ============================================================
         prompt = f"""
         Eres un auditor especializado en facturación electrónica con 15 años de experiencia. Tu tarea es comparar una factura en formato PDF (visual) y su correspondiente XML (datos estructurados).
@@ -377,52 +377,52 @@ def comparar():
            - Si hay diferencias en el total o IGV (mayores a 0.01 por redondeo)
            - Si los RUC no coinciden (esto invalida la factura)
 
-        4. **FORMATO DE RESPUESTA** (usar exactamente este formato):
+        4. **FORMATO DE RESPUESTA** (usar exactamente este formato, SIN TABLAS):
 
-        ## 📊 RESUMEN DE COMPARACIÓN
-        - Archivo PDF: {pdf_file.filename}
-        - Archivo XML: {xml_file.filename}
-        - Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        📊 RESUMEN DE COMPARACIÓN
+        Archivo PDF: {pdf_file.filename}
+        Archivo XML: {xml_file.filename}
+        Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-        ## ✅ CAMPOS QUE COINCIDEN
-        | Campo | Valor |
-        |-------|-------|
-        | RUC Emisor | [valor] |
-        | RUC Cliente | [valor] |
-        | Número Factura | [valor] |
-        | Fecha Emisión | [valor] |
-        | Moneda | [valor] |
-        | Total Venta | [valor] |
-        | IGV | [valor] |
-        | Importe Total | [valor] |
+        ✅ CAMPOS QUE COINCIDEN(COMPLETA SOLO LOS CAMPOS QUE COINCIDAN, SINO COINCIDEN, DEJALO EN BLANCO)
+        • RUC Emisor: [valor]
+        • RUC Cliente: [valor]
+        • Número Factura: [valor]
+        • Fecha Emisión: [valor]
+        • Moneda: [valor]
+        • Total Venta: [valor]
+        • IGV: [valor]
+        • Importe Total: [valor]
 
-        ## ❌ DISCREPANCIAS ENCONTRADAS
-        | Campo | PDF dice | XML dice |
-        |-------|----------|----------|
-        | [campo] | [valor PDF] | [valor XML] |
+        ❌ DISCREPANCIAS ENCONTRADAS
+        • [Campo 1]: PDF dice "[valor PDF]" | XML dice "[valor XML]"
+        • [Campo 2]: PDF dice "[valor PDF]" | XML dice "[valor XML]"
+        (Si no hay discrepancias, poner: "No se encontraron discrepancias.")
 
-        ## 📌 CAMPOS FALTANTES
-        - [Campo 1]: presente en [PDF/XML], ausente en [XML/PDF]
+        📌 CAMPOS FALTANTES
+        • [Campo 1]: presente en [PDF/XML], ausente en [XML/PDF]
+        (Si no hay campos faltantes, poner: "No se encontraron campos faltantes.")
 
-        ## 🏁 VEREDICTO FINAL
-        [Conclusión clara y concisa. ¿Son la misma factura? ¿Hay discrepancias graves? ¿Se puede aprobar?]
+        🏁 VEREDICTO FINAL
+        [Conclusión clara y concisa. Usar uno de estos tres estados obligatoriamente: APROBADA, REVISAR, RECHAZADA]
 
-        ### ADVERTENCIA
-        - Si hay discrepancia en RUC del emisor, el veredicto debe ser "RECHAZADA - RUC no coincide"
-        - Si hay diferencia en total > 1.00, el veredicto debe ser "REVISAR - Diferencia en monto"
-        - Si todo coincide, el veredicto debe ser "APROBADA - Documentos consistentes"
+        REGLAS PARA VEREDICTO:
+        - Si discrepancia en RUC del emisor → RECHAZADA
+        - Si diferencia en total > 1.00 → REVISAR
+        - Si todo coincide o diferencia <= 0.01 → APROBADA
+        - Si hay campos faltantes importantes → REVISAR
         """
         
-        # Llamar a Groq con temperatura más alta (0.5) para mejor razonamiento
+        # Llamar a Groq
         print("\nLlamando a Groq para comparación...")
         completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "Eres un auditor experto en facturación electrónica. Responde ÚNICAMENTE en español. Usa formato de tabla para campos que coinciden y discrepancias. Sé preciso y conciso."},
+                {"role": "system", "content": "Eres un auditor experto en facturación electrónica. Responde ÚNICAMENTE en español. Usa el formato lineal con viñetas (•) que se te indica. Sé preciso y conciso."},
                 {"role": "user", "content": prompt}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.5,  # Subido de 0.2 a 0.5 para mejor razonamiento
-            max_tokens=2500   # Aumentado para respuestas más detalladas
+            temperature=0.5,
+            max_tokens=2500
         )
         
         resultado = completion.choices[0].message.content
@@ -450,7 +450,6 @@ def comparar():
                     print(f"✅ Archivo temporal eliminado: {path}")
                 except:
                     pass
-
 # ============================================
 # ENDPOINT 5: PÁGINA PRINCIPAL
 # ============================================
