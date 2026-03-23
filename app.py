@@ -384,7 +384,7 @@ def comparar():
         Archivo XML: {xml_file.filename}
         Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-        ✅ CAMPOS QUE COINCIDEN(COMPLETA SOLO LOS CAMPOS QUE COINCIDAN, SINO COINCIDEN, DEJALO EN BLANCO)
+        ✅ CAMPOS QUE COINCIDEN
         • RUC Emisor: [valor]
         • RUC Cliente: [valor]
         • Número Factura: [valor]
@@ -408,8 +408,6 @@ def comparar():
 
         REGLAS PARA VEREDICTO:
         - Si discrepancia en RUC del emisor → RECHAZADA
-        - Si diferencia en total > 1.00 → REVISAR
-        - Si todo coincide o diferencia <= 0.01 → APROBADA
         - Si hay campos faltantes importantes → REVISAR
         """
         
@@ -421,7 +419,7 @@ def comparar():
                 {"role": "user", "content": prompt}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.5,
+            temperature=0.0,
             max_tokens=2500
         )
         
