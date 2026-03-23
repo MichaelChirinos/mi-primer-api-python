@@ -333,51 +333,45 @@ def comparar():
             print(f"Error en XML: {e}")
             return jsonify({'error': f'Error al leer XML: {str(e)}'}), 500
         
-        # Limitar textos
-        pdf_limitado = pdf_text[:8000]
-        xml_limitado = xml_text[:8000]
+        # Limitar textos (aumentar límite para mejor análisis)
+        pdf_limitado = pdf_text[:12000]
+        xml_limitado = xml_text[:12000]
         
         # ============================================================
-        # PROMPT CON FORMATO LINEAL (SIN TABLAS)
+        # PROMPT CORREGIDO (FORZANDO ANÁLISIS REAL)
         # ============================================================
         prompt = f"""
-        Eres un auditor especializado en facturación electrónica con 15 años de experiencia. Tu tarea es comparar una factura en formato PDF (visual) y su correspondiente XML (datos estructurados).
+        Eres un auditor especializado en facturación electrónica con 15 años de experiencia.
 
-        ### ARCHIVOS A COMPARAR
-        - **PDF**: {pdf_file.filename}
-        - **XML**: {xml_file.filename}
+        Tu tarea es COMPARAR EXHAUSTIVAMENTE estos dos archivos y encontrar CUALQUIER DIFERENCIA.
 
-        ### CONTENIDO EXTRAÍDO
-        === PDF ===
+        **ARCHIVOS A COMPARAR**
+        - PDF: {pdf_file.filename}
+        - XML: {xml_file.filename}
+
+        **CONTENIDO EXTRAÍDO DEL PDF** (primeros 12000 caracteres)
         {pdf_limitado}
-        
-        === XML ===
+
+        **CONTENIDO EXTRAÍDO DEL XML** (primeros 12000 caracteres)
         {xml_limitado}
 
-        ### INSTRUCCIONES ESTRICTAS
-        Realiza una comparación exhaustiva siguiendo este orden:
+        **INSTRUCCIONES ESTRICTAS**
+        1. Analiza LÍNEA POR LÍNEA el contenido de ambos archivos.
+        2. NO des por sentado que coinciden. Busca activamente diferencias.
+        3. Si no encuentras diferencias, revisa nuevamente porque puede haberlas.
 
-        1. **CAMPOS CLAVE A VERIFICAR** (obligatorio):
-           - RUC del emisor
-           - RUC del receptor/cliente
-           - Número de factura
-           - Fecha de emisión
-           - Fecha de vencimiento (si existe)
-           - Moneda
-           - Total valor de venta (subtotal)
-           - IGV (monto de impuesto)
-           - Importe total
+        **CAMPOS OBLIGATORIOS A VERIFICAR:**
+        - RUC del emisor
+        - RUC del receptor/cliente
+        - Número de factura
+        - Fecha de emisión
+        - Fecha de vencimiento
+        - Moneda
+        - Total valor de venta (subtotal)
+        - IGV
+        - Importe total
 
-        2. **POR CADA CAMPO**, indica:
-           - ✅ **Coincidencia**: si el valor es el mismo en ambos formatos
-           - ❌ **Discrepancia**: si los valores difieren (muestra PDF vs XML)
-
-        3. **DISCREPANCIAS GRAVES**:
-           - Si algún campo obligatorio no existe en alguno de los formatos
-           - Si hay diferencias en el total o IGV (mayores a 0.01 por redondeo)
-           - Si los RUC no coinciden (esto invalida la factura)
-
-        4. **FORMATO DE RESPUESTA** (usar exactamente este formato, SIN TABLAS):
+        **FORMATO DE RESPUESTA** (usar EXACTAMENTE este formato):
 
         📊 RESUMEN DE COMPARACIÓN
         Archivo PDF: {pdf_file.filename}
@@ -385,42 +379,46 @@ def comparar():
         Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
         ✅ CAMPOS QUE COINCIDEN
-        • RUC Emisor: [valor]
-        • RUC Cliente: [valor]
-        • Número Factura: [valor]
-        • Fecha Emisión: [valor]
-        • Moneda: [valor]
-        • Total Venta: [valor]
-        • IGV: [valor]
-        • Importe Total: [valor]
+        • RUC Emisor: [valor PDF] | [valor XML]
+        • RUC Cliente: [valor PDF] | [valor XML]
+        • Número Factura: [valor PDF] | [valor XML]
+        • Fecha Emisión: [valor PDF] | [valor XML]
+        • Moneda: [valor PDF] | [valor XML]
+        • Total Venta: [valor PDF] | [valor XML]
+        • IGV: [valor PDF] | [valor XML]
+        • Importe Total: [valor PDF] | [valor XML]
 
         ❌ DISCREPANCIAS ENCONTRADAS
-        • [Campo 1]: PDF dice "[valor PDF]" | XML dice "[valor XML]"
-        • [Campo 2]: PDF dice "[valor PDF]" | XML dice "[valor XML]"
-        (Si no hay discrepancias, poner: "No se encontraron discrepancias.")
+        • [Campo 1]: PDF dice "[valor]" | XML dice "[valor]"
+        • [Campo 2]: PDF dice "[valor]" | XML dice "[valor]"
+
+        **CRÍTICO**: Si el valor es el mismo, escríbelo igual. Si es diferente, márcalo como DISCREPANCIA.
 
         📌 CAMPOS FALTANTES
-        • [Campo 1]: presente en [PDF/XML], ausente en [XML/PDF]
-        (Si no hay campos faltantes, poner: "No se encontraron campos faltantes.")
+        • [Campo 1]: presente en PDF, ausente en XML
+        • [Campo 2]: presente en XML, ausente en PDF
 
         🏁 VEREDICTO FINAL
-        [Conclusión clara y concisa. Usar uno de estos tres estados obligatoriamente: APROBADA, REVISAR, RECHAZADA]
+        [APROBADA / REVISAR / RECHAZADA] - [Explicación breve]
 
-        REGLAS PARA VEREDICTO:
-        - Si discrepancia en RUC del emisor → RECHAZADA
-        - Si hay campos faltantes importantes → REVISAR
+        **REGLAS OBLIGATORIAS PARA VEREDICTO:**
+        - Si RUC emisor NO coincide → RECHAZADA
+        - Si Total Venta difiere en más de 0.01 → REVISAR
+        - Si IGV difiere en más de 0.01 → REVISAR
+        - Si algún campo obligatorio falta → REVISAR
+        - Si todo coincide → APROBADA
         """
         
-        # Llamar a Groq
+        # Llamar a Groq con temperatura 0.3 para mejor análisis
         print("\nLlamando a Groq para comparación...")
         completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "Eres un auditor experto en facturación electrónica. Responde ÚNICAMENTE en español. Usa el formato lineal con viñetas (•) que se te indica. Sé preciso y conciso."},
+                {"role": "system", "content": "Eres un auditor experto en facturación electrónica. Analiza TODO el contenido. NO asumas que coinciden. Busca diferencias ACTIVAMENTE. Responde ÚNICAMENTE en español."},
                 {"role": "user", "content": prompt}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.0,
-            max_tokens=2500
+            temperature=0.3,  # Subido de 0.0 a 0.3 para mejor análisis
+            max_tokens=3000   # Aumentado para respuestas más detalladas
         )
         
         resultado = completion.choices[0].message.content
