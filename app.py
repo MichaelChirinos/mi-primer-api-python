@@ -200,7 +200,7 @@ def procesar_archivo():
         print(f"   ✅ Texto extraído: {len(texto_extraido)} caracteres")
         
         # 6. Limitar texto
-        texto_limitado = texto_extraido[:10000]
+        texto_limitado = texto_extraido[:20000]
         print(f"7. Texto limitado a {len(texto_limitado)} caracteres")
         
         # 7. Enviar a Groq
@@ -226,7 +226,7 @@ def procesar_archivo():
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.7,
-            max_tokens=1000
+            max_tokens=2000
         )
         
         resultado = completion.choices[0].message.content
@@ -334,8 +334,8 @@ def comparar():
             return jsonify({'error': f'Error al leer XML: {str(e)}'}), 500
         
         # Limitar textos (aumentar límite para mejor análisis)
-        pdf_limitado = pdf_text[:12000]
-        xml_limitado = xml_text[:12000]
+        pdf_limitado = pdf_text[:20000]
+        xml_limitado = xml_text[:20000]
         
         # ============================================================
         # PROMPT CORREGIDO (FORZANDO ANÁLISIS REAL)
@@ -418,7 +418,7 @@ def comparar():
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.3,  # Subido de 0.0 a 0.3 para mejor análisis
-            max_tokens=3000   # Aumentado para respuestas más detalladas
+            max_tokens=4000   # Aumentado para respuestas más detalladas
         )
         
         resultado = completion.choices[0].message.content
