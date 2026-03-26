@@ -1,15 +1,13 @@
 import time
 import os
 import traceback
-from requests import options
-from requests import options
 from selenium import webdriver
-from selenium.webdriver.edge.service import Service
-from selenium.webdriver.edge.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+# Detectar entorno
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'LOCAL')
 
 class SunatSession:
     _driver = None
@@ -18,6 +16,7 @@ class SunatSession:
         self.ruc = os.getenv("SUNAT_RUC")
         self.user = os.getenv("SUNAT_USER")
         self.password = os.getenv("SUNAT_PASS")
+        self.env = os.getenv("ENVIRONMENT", "LOCAL")
         
         missing = []
         if not self.ruc:
@@ -28,16 +27,15 @@ class SunatSession:
             missing.append("SUNAT_PASS")
             
         if missing:
-            print(f"Error: Faltan las siguientes variables de entorno: {', '.join(missing)}")
+            print(f"❌ Faltan variables: {', '.join(missing)}")
         else:
-            print("Credenciales cargadas correctamente")
-            print(f"   RUC: {self.ruc[:4]}***{self.ruc[-3:]}")
-            print(f"   Usuario: {self.user}")
+            print(f"✅ Credenciales cargadas - RUC: {self.ruc[:4]}***{self.ruc[-3:]}")
+            print(f"🌍 Entorno: {self.env}")
 
     def login_and_get_cookies(self):
         try:
             if not all([self.ruc, self.user, self.password]):
-                raise Exception("Credenciales de SUNAT incompletas.")
+                raise Exception("Credenciales incompletas")
                 
             if SunatSession._driver is None:
                 self._iniciar_y_loguear()
@@ -47,11 +45,10 @@ class SunatSession:
                 
             driver = SunatSession._driver
             
-            # Verificar que el driver sigue vivo
             try:
                 driver.current_url
             except:
-                print("Driver no responde, reiniciando")
+                print("⚠️ Driver no responde, reiniciando...")
                 SunatSession._driver = None
                 self._iniciar_y_loguear()
                 driver = SunatSession._driver
@@ -60,19 +57,20 @@ class SunatSession:
             user_agent = driver.execute_script("return navigator.userAgent")
             
             if not selenium_cookies:
-                raise Exception("No se obtuvieron cookies del navegador")
+                raise Exception("No se obtuvieron cookies")
             
             cookie_string = "; ".join([f"{c['name']}={c['value']}" for c in selenium_cookies])
             
-            print(f"Datos de sesión extraídos correctamente. Cookies: {len(selenium_cookies)}")
+            print(f"✅ Sesión obtenida - Cookies: {len(selenium_cookies)}")
             
             return {
                 "cookies": cookie_string,
                 "user_agent": user_agent
             }
+            
         except Exception as e:
-            print(f"❌ Error crítico obteniendo sesión: {e}")
-            print(traceback.format_exc())
+            print(f"❌ Error en login: {e}")
+            traceback.print_exc()
             if SunatSession._driver:
                 try:
                     SunatSession._driver.quit()
@@ -81,25 +79,55 @@ class SunatSession:
                 SunatSession._driver = None
             return None
 
-    def _iniciar_y_loguear(self):        
+    def _iniciar_y_loguear(self):
         try:
-            options = Options()
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--start-maximized')
-            options.add_argument("--headless=new") 
-            options.add_argument("--disable-gpu")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option('useAutomationExtension', False)
-            options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0")
-
-            SunatSession._driver = webdriver.Edge(options=options)
-            driver = SunatSession._driver
-            wait = WebDriverWait(driver, 15) 
+            ENVIRONMENT = os.getenv('ENVIRONMENT', 'LOCAL')
+            print(f"🚀 Iniciando navegador en modo {ENVIRONMENT}...")
             
+            if ENVIRONMENT == "LOCAL":
+                # ========== CONFIGURACIÓN LOCAL (EDGE) ==========
+                from selenium.webdriver.edge.options import Options as EdgeOptions
+                options = EdgeOptions()
+                options.add_argument('--disable-blink-features=AutomationControlled')
+                options.add_argument('--no-sandbox')
+                options.add_argument('--start-maximized')
+                options.add_argument("--headless=new") 
+                options.add_argument("--disable-gpu")
+                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_experimental_option('useAutomationExtension', False)
+                options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0")
+                
+                SunatSession._driver = webdriver.Edge(options=options)
+                print("   ✅ Edge iniciado (modo local)")
+                
+            else:
+                # ========== CONFIGURACIÓN PRODUCCIÓN (CHROME HEADLESS) ==========
+                from selenium.webdriver.chrome.options import Options as ChromeOptions
+                from selenium.webdriver.chrome.service import Service
+                from webdriver_manager.chrome import ChromeDriverManager
+                
+                options = ChromeOptions()
+                options.add_argument("--headless=new")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--disable-blink-features=AutomationControlled")
+                options.add_argument("--window-size=1920,1080")
+                options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_experimental_option('useAutomationExtension', False)
+                
+                service = Service(ChromeDriverManager().install())
+                SunatSession._driver = webdriver.Chrome(service=service, options=options)
+                print("   ✅ Chrome Headless iniciado (modo producción)")
+            
+            driver = SunatSession._driver
+            wait = WebDriverWait(driver, 20)
+            
+            print("🔐 Accediendo al portal SUNAT...")
             driver.get("https://e-menu.sunat.gob.pe/cl-ti-itmenu/MenuInternet.htm")
             
-            print("⌨Ingresando credenciales")
+            print("⌨️ Ingresando credenciales...")
             ruc_field = wait.until(EC.presence_of_element_located((By.ID, "txtRuc")))
             ruc_field.send_keys(self.ruc)
             driver.find_element(By.ID, "txtUsuario").send_keys(self.user)
@@ -110,26 +138,35 @@ class SunatSession:
             
             try:
                 wait.until(EC.presence_of_element_located((By.ID, "divMenu0")))
-                print("✅ Menú cargado visualmente.")
-            except Exception:
-                print("El menú visual tardó mucho. Intentando forzar sincronización")
-                
-            print("Sincronizando módulo de Consultas")
-            url_modulo = "https://e-menu.sunat.gob.pe/cl-ti-itmenu/MenuInternet.htm?pestana=*&agrupacion=*&exe=11.5.10.1.1"
-            driver.get(url_modulo)
-            time.sleep(6)
-
-            print("Saltando a Consulta Unificada")
+                print("✅ Menú principal cargado")
+            except:
+                print("⚠️ Menú tardó, continuando...")
+            
+            print("🔄 Navegando a Consulta Unificada...")
+            time.sleep(3)
             driver.get("https://ww1.sunat.gob.pe/ol-ti-itconsultaunificada/consultaUnificada/index")
             
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            time.sleep(2)
             
-            print("Proceso de sesión completado.")
+            print("✅ Sesión iniciada correctamente")
             
         except Exception as e:
-            print(f"Error crítico en _iniciar_y_loguear: {str(e)}")
+            print(f"❌ Error en _iniciar_y_loguear: {str(e)}")
+            traceback.print_exc()
             if SunatSession._driver:
-                try: SunatSession._driver.quit()
-                except: pass
+                try:
+                    SunatSession._driver.quit()
+                except:
+                    pass
                 SunatSession._driver = None
             raise
+
+    def quit(self):
+        if SunatSession._driver:
+            try:
+                SunatSession._driver.quit()
+                SunatSession._driver = None
+                print("✅ Driver cerrado")
+            except:
+                pass
