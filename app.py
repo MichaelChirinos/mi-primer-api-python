@@ -115,8 +115,8 @@ def comparar():
         {{
             "numRuc": "RUC del emisor",
             "codComp": "01",
-            "numeroSerie": "Serie",
-            "numero": "Número",
+            "numeroSerie": "SOLO LA SERIE (ejemplo: FF01, F001, B001)",
+            "numero": "SOLO EL NÚMERO (ejemplo: 17763, sin la serie)",
             "fechaEmision": "DD/MM/YYYY",
             "monto": "Monto total",
             "tiene_discrepancias": true/false
@@ -127,8 +127,11 @@ def comparar():
         2. Lista campos que coinciden y discrepancias
         3. Da veredicto final: APROBADA/REVISAR/RECHAZADA
         4. En DATOS_SUNAT, extrae los datos del XML (prioridad)
-        5. Si algún dato no existe, pon "NO_ENCONTRADO"
-        6. "tiene_discrepancias" debe ser TRUE si hay alguna diferencia, FALSE si todo coincide
+        5. numeroSerie y numero deben ir SEPARADOS
+        6. Si el comprobante es "FF01-17763" → serie="FF01", numero="17763"
+        7. NO incluyas el guión en el campo numero
+        8. Si algún dato no existe, pon "NO_ENCONTRADO"
+        9. "tiene_discrepancias" debe ser TRUE si hay alguna diferencia, FALSE si todo coincide
         """
         
         print("\n🤖 Llamando a Groq...")
@@ -150,23 +153,20 @@ def comparar():
         # ============================================
         resultado_analisis = respuesta
         datos_extraidos = None
-        tiene_discrepancias = True  # Por defecto True
+        tiene_discrepancias = True
         
         # Buscar sección ===DATOS_SUNAT===
         if '===DATOS_SUNAT===' in respuesta:
             partes = respuesta.split('===DATOS_SUNAT===')
             resultado_analisis = partes[0].replace('===ANALISIS===', '').strip()
             
-            # Extraer JSON de la segunda parte
             json_texto = partes[1].strip()
             try:
-                # Buscar JSON con regex
                 json_match = re.search(r'\{.*\}', json_texto, re.DOTALL)
                 if json_match:
                     datos_extraidos = json.loads(json_match.group())
                     tiene_discrepancias = datos_extraidos.get('tiene_discrepancias', True)
                     print(f"✅ Datos extraídos: {datos_extraidos}")
-                    print(f"✅ Tiene discrepancias: {tiene_discrepancias}")
                 else:
                     raise Exception("No se encontró JSON")
             except Exception as e:
@@ -177,31 +177,8 @@ def comparar():
                     "numeroSerie": "ERROR_PARSEO",
                     "numero": "ERROR_PARSEO",
                     "fechaEmision": "ERROR_PARSEO",
-                    "monto": "ERROR_PARSEO",
-                    "tiene_discrepancias": True
+                    "monto": "ERROR_PARSEO"
                 }
-                tiene_discrepancias = True
-        else:
-            # Si no encuentra el separador, intentar extraer del texto
-            print("⚠️ No se encontró el separador ===DATOS_SUNAT===")
-            try:
-                # Buscar JSON en toda la respuesta
-                json_match = re.search(r'\{[^{}]*"numRuc"[^{}]*\}', respuesta, re.DOTALL)
-                if json_match:
-                    datos_extraidos = json.loads(json_match.group())
-                    tiene_discrepancias = datos_extraidos.get('tiene_discrepancias', True)
-            except:
-                datos_extraidos = None
-                tiene_discrepancias = True
-        
-        # ============================================
-        # DETERMINAR SI HAY DISCREPANCIAS (fallback)
-        # ============================================
-        # Si el JSON no tenía tiene_discrepancias, calcularlo del análisis
-        if datos_extraidos and datos_extraidos.get('tiene_discrepancias') is None:
-            if "no se encontraron diferencias" in resultado_analisis.lower() or "coinciden" in resultado_analisis.lower():
-                tiene_discrepancias = False
-            else:
                 tiene_discrepancias = True
         
         # ============================================
