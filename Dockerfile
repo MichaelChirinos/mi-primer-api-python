@@ -12,10 +12,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar ChromeDriver
-RUN wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip \
-    && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
-    && rm /tmp/chromedriver.zip
+# NO instalar ChromeDriver manualmente, webdriver-manager se encargará de la versión correcta
 
 # Establecer directorio de trabajo
 WORKDIR /app
@@ -30,6 +27,7 @@ COPY . .
 # Variables de entorno
 ENV ENVIRONMENT=PROD
 ENV PYTHONUNBUFFERED=1
+ENV WDM_LOG_LEVEL=0
 
 # Exponer puerto
 EXPOSE 10000
