@@ -12,7 +12,6 @@ import re
 import threading
 import time
 
-# Importar módulos SUNAT
 from modules.sunat_session import SunatSession
 from modules.sunat_api import SunatAPI
 
