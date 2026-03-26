@@ -8,6 +8,7 @@ import traceback
 import fitz  # PyMuPDF
 from datetime import datetime
 import json
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -27,6 +28,9 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# ============================================
+# ENDPOINT: COMPARAR PDF vs XML + EXTRACCIÓN DE DATOS
+# ============================================
 @app.route('/comparar', methods=['POST'])
 def comparar():
     print("\n=== NUEVA PETICIÓN A /comparar ===")
@@ -86,120 +90,137 @@ def comparar():
         pdf_limitado = pdf_text[:20000]
         xml_limitado = xml_text[:20000]
         
+        # ============================================
+        # PROMPT ÚNICO: Comparación + Extracción de datos en UNA SOLA LLAMADA
+        # ============================================
+        prompt_unificado = f"""
+        Eres un auditor de facturación electrónica peruana.
 
-        prompt_comparacion = f"""
-        Eres un auditor especializado en facturación electrónica.
-
-        **ARCHIVOS A COMPARAR**
+        **ARCHIVOS**
         - PDF: {pdf_file.filename}
         - XML: {xml_file.filename}
 
-        **CONTENIDO EXTRAÍDO DEL PDF**
+        **CONTENIDO PDF** (primeros 20000 caracteres):
         {pdf_limitado}
 
-        **CONTENIDO EXTRAÍDO DEL XML**
+        **CONTENIDO XML** (primeros 20000 caracteres):
         {xml_limitado}
 
-        **CAMPOS OBLIGATORIOS A VERIFICAR:**
-        - RUC del emisor
-        - RUC del receptor/cliente
-        - Número de factura (serie y número)
-        - Fecha de emisión
-        - Moneda
-        - Total valor de venta (subtotal)
-        - IGV
-        - Importe total
+        Realiza DOS tareas y responde EXACTAMENTE con este formato:
 
-        **FORMATO DE RESPUESTA:**
+        ===ANALISIS===
+        [Aquí tu análisis en markdown]
 
-        📊 RESUMEN DE COMPARACIÓN
-        Archivo PDF: {pdf_file.filename}
-        Archivo XML: {xml_file.filename}
-        Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        ===DATOS_SUNAT===
+        {{
+            "numRuc": "RUC del emisor",
+            "codComp": "01",
+            "numeroSerie": "Serie",
+            "numero": "Número",
+            "fechaEmision": "DD/MM/YYYY",
+            "monto": "Monto total",
+            "tiene_discrepancias": true/false
+        }}
 
-        ✅ CAMPOS QUE COINCIDEN
-        • RUC Emisor: [valor PDF] | [valor XML]
-        • RUC Cliente: [valor PDF] | [valor XML]
-        • Número Factura: [valor PDF] | [valor XML]
-        • Fecha Emisión: [valor PDF] | [valor XML]
-        • Moneda: [valor PDF] | [valor XML]
-        • Total Venta: [valor PDF] | [valor XML]
-        • IGV: [valor PDF] | [valor XML]
-        • Importe Total: [valor PDF] | [valor XML]
-
-        ❌ DISCREPANCIAS ENCONTRADAS
-        • [Campo]: PDF dice "[valor]" | XML dice "[valor]"
-
-        🏁 VEREDICTO FINAL
-        [APROBADA / REVISAR / RECHAZADA]
+        **REGLAS IMPORTANTES:**
+        1. En el análisis, compara línea por línea ambos archivos
+        2. Lista campos que coinciden y discrepancias
+        3. Da veredicto final: APROBADA/REVISAR/RECHAZADA
+        4. En DATOS_SUNAT, extrae los datos del XML (prioridad)
+        5. Si algún dato no existe, pon "NO_ENCONTRADO"
+        6. "tiene_discrepancias" debe ser TRUE si hay alguna diferencia, FALSE si todo coincide
         """
         
-        print("\n🤖 Llamando a Groq para comparación...")
+        print("\n🤖 Llamando a Groq...")
         completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "Eres un auditor experto en facturación electrónica."},
-                {"role": "user", "content": prompt_comparacion}
+                {"role": "system", "content": "Eres un auditor experto. Responde EXACTAMENTE con el formato solicitado."},
+                {"role": "user", "content": prompt_unificado}
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.3,
-            max_tokens=4000
+            max_tokens=5000
         )
         
-        resultado_analisis = completion.choices[0].message.content
-        print("✅ Comparación completada")
-
-        print("\n🤖 Extrayendo datos estructurados del XML...")
+        respuesta = completion.choices[0].message.content
+        print(f"Respuesta recibida, longitud: {len(respuesta)}")
         
-        prompt_datos = f"""
-        Extrae los siguientes datos del XML de factura electrónica.
+        # ============================================
+        # EXTRAER ANÁLISIS Y DATOS
+        # ============================================
+        resultado_analisis = respuesta
+        datos_extraidos = None
+        tiene_discrepancias = True  # Por defecto True
         
-        CONTENIDO XML:
-        {xml_limitado}
+        # Buscar sección ===DATOS_SUNAT===
+        if '===DATOS_SUNAT===' in respuesta:
+            partes = respuesta.split('===DATOS_SUNAT===')
+            resultado_analisis = partes[0].replace('===ANALISIS===', '').strip()
+            
+            # Extraer JSON de la segunda parte
+            json_texto = partes[1].strip()
+            try:
+                # Buscar JSON con regex
+                json_match = re.search(r'\{.*\}', json_texto, re.DOTALL)
+                if json_match:
+                    datos_extraidos = json.loads(json_match.group())
+                    tiene_discrepancias = datos_extraidos.get('tiene_discrepancias', True)
+                    print(f"✅ Datos extraídos: {datos_extraidos}")
+                    print(f"✅ Tiene discrepancias: {tiene_discrepancias}")
+                else:
+                    raise Exception("No se encontró JSON")
+            except Exception as e:
+                print(f"Error parseando JSON: {e}")
+                datos_extraidos = {
+                    "numRuc": "ERROR_PARSEO",
+                    "codComp": "ERROR_PARSEO",
+                    "numeroSerie": "ERROR_PARSEO",
+                    "numero": "ERROR_PARSEO",
+                    "fechaEmision": "ERROR_PARSEO",
+                    "monto": "ERROR_PARSEO",
+                    "tiene_discrepancias": True
+                }
+                tiene_discrepancias = True
+        else:
+            # Si no encuentra el separador, intentar extraer del texto
+            print("⚠️ No se encontró el separador ===DATOS_SUNAT===")
+            try:
+                # Buscar JSON en toda la respuesta
+                json_match = re.search(r'\{[^{}]*"numRuc"[^{}]*\}', respuesta, re.DOTALL)
+                if json_match:
+                    datos_extraidos = json.loads(json_match.group())
+                    tiene_discrepancias = datos_extraidos.get('tiene_discrepancias', True)
+            except:
+                datos_extraidos = None
+                tiene_discrepancias = True
         
-        Responde SOLO con este JSON, sin texto adicional:
-        {{
-            "numRuc": "RUC del emisor (11 dígitos)",
-            "codComp": "01",
-            "numeroSerie": "Serie del comprobante",
-            "numero": "Número del comprobante",
-            "fechaEmision": "Fecha en formato DD/MM/YYYY",
-            "monto": "Monto total con dos decimales"
-        }}
+        # ============================================
+        # DETERMINAR SI HAY DISCREPANCIAS (fallback)
+        # ============================================
+        # Si el JSON no tenía tiene_discrepancias, calcularlo del análisis
+        if datos_extraidos and datos_extraidos.get('tiene_discrepancias') is None:
+            if "no se encontraron diferencias" in resultado_analisis.lower() or "coinciden" in resultado_analisis.lower():
+                tiene_discrepancias = False
+            else:
+                tiene_discrepancias = True
         
-        Si algún dato no existe en el XML, pon "NO_ENCONTRADO".
-        """
-        
-        completion_datos = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "Eres un extractor de datos. Responde SOLO con JSON válido."},
-                {"role": "user", "content": prompt_datos}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
-            max_tokens=500
-        )
-        
-        # Parsear respuesta JSON
-        try:
-            datos_extraidos = json.loads(completion_datos.choices[0].message.content)
-            print(f"✅ Datos extraídos: {datos_extraidos}")
-        except Exception as e:
-            print(f"Error al parsear JSON: {e}")
-            datos_extraidos = {
-                "numRuc": "ERROR_PARSEO",
-                "codComp": "ERROR_PARSEO",
-                "numeroSerie": "ERROR_PARSEO",
-                "numero": "ERROR_PARSEO",
-                "fechaEmision": "ERROR_PARSEO",
-                "monto": "ERROR_PARSEO"
-            }
-
+        # ============================================
+        # RESPUESTA FINAL
+        # ============================================
         return jsonify({
             'resultado': resultado_analisis,
             'pdf': pdf_file.filename,
             'xml': xml_file.filename,
             'fecha': datetime.now().isoformat(),
-            'datos_extraidos': datos_extraidos
+            'tiene_discrepancias': tiene_discrepancias,
+            'datos_extraidos': datos_extraidos if datos_extraidos else {
+                "numRuc": "NO_EXTRAIDO",
+                "codComp": "NO_EXTRAIDO",
+                "numeroSerie": "NO_EXTRAIDO",
+                "numero": "NO_EXTRAIDO",
+                "fechaEmision": "NO_EXTRAIDO",
+                "monto": "NO_EXTRAIDO"
+            }
         })
         
     except Exception as e:
@@ -221,17 +242,9 @@ def comparar():
 def home():
     return jsonify({
         'api': 'Factura Validator',
-        'version': '1.0.0',
+        'version': '2.0.0',
         'endpoints': {
             'comparar': 'POST /comparar (requiere pdf + xml)'
-        },
-        'datos_extraidos': {
-            'numRuc': 'RUC del emisor',
-            'codComp': 'Código de comprobante (01=Factura)',
-            'numeroSerie': 'Serie del comprobante',
-            'numero': 'Número del comprobante',
-            'fechaEmision': 'Fecha en formato DD/MM/YYYY',
-            'monto': 'Monto total'
         }
     })
 
