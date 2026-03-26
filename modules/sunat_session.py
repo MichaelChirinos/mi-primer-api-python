@@ -116,7 +116,8 @@ class SunatSession:
                 options.add_experimental_option("excludeSwitches", ["enable-automation"])
                 options.add_experimental_option('useAutomationExtension', False)
                 
-                service = Service("/usr/local/bin/chromedriver")
+                # webdriver-manager descargará automáticamente la versión correcta de ChromeDriver
+                service = Service(ChromeDriverManager().install())
                 SunatSession._driver = webdriver.Chrome(service=service, options=options)
                 print("   ✅ Chrome Headless iniciado (modo producción)")
             
