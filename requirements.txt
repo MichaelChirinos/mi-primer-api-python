@@ -1,6 +1,9 @@
-flask
+Flask
 flask-cors
-gunicorn
 groq
 PyMuPDF
-werkzeug
+Werkzeug
+python-dotenv
+requests
+selenium
+webdriver-manager
