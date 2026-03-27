@@ -64,4 +64,5 @@ ENV CHROME_DRIVER_PATH=/usr/local/bin/chromedriver
 
 EXPOSE 10000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--timeout", "300", "app:app"]
+# Usa gevent para que no se bloquee la CPU limitada de Render
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--worker-class", "gevent", "--workers", "1", "--threads", "4", "--timeout", "300", "app:app"]
