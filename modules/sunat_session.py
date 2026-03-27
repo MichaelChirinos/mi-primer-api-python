@@ -103,9 +103,12 @@ class SunatSession:
                 # ========== CONFIGURACIÓN PRODUCCIÓN (CHROME HEADLESS) ==========
                 from selenium.webdriver.chrome.options import Options as ChromeOptions
                 from selenium.webdriver.chrome.service import Service
-                from webdriver_manager.chrome import ChromeDriverManager
+                # Ya no necesitamos ChromeDriverManager en producción
                 
                 options = ChromeOptions()
+                # RUTA CRÍTICA: Indicamos dónde está el binario de Chrome instalado por el Dockerfile
+                options.binary_location = "/usr/bin/google-chrome"
+                
                 options.add_argument("--headless=new")
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
@@ -113,13 +116,15 @@ class SunatSession:
                 options.add_argument("--disable-blink-features=AutomationControlled")
                 options.add_argument("--window-size=1920,1080")
                 options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                
                 options.add_experimental_option("excludeSwitches", ["enable-automation"])
                 options.add_experimental_option('useAutomationExtension', False)
                 
-                # webdriver-manager descargará automáticamente la versión correcta de ChromeDriver
-                service = Service(ChromeDriverManager().install())
+                # RUTA CRÍTICA: Usamos el ChromeDriver que descargamos manualmente en el Dockerfile
+                service = Service("/usr/local/bin/chromedriver")
+                
                 SunatSession._driver = webdriver.Chrome(service=service, options=options)
-                print("   ✅ Chrome Headless iniciado (modo producción)")
+                print("   ✅ Chrome Headless iniciado (Rutas fijas en producción)")
             
             driver = SunatSession._driver
             wait = WebDriverWait(driver, 20)
