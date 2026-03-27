@@ -57,7 +57,8 @@ class SunatSession:
                 raise Exception("No se obtuvieron cookies")
             
             cookie_string = "; ".join([f"{c['name']}={c['value']}" for c in selenium_cookies])
-            
+            print(f"   Cookie string (primeros 200 caracteres): {cookie_string[:200]}")
+            print(f"   User-Agent: {user_agent}")
             print(f"✅ Sesión obtenida - Cookies: {len(selenium_cookies)}")
             
             return {
