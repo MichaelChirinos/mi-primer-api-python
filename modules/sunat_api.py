@@ -21,9 +21,12 @@ class SunatAPI:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
 
+    
     def consultar_individual(self, datos):
         url = f"{self.url_base}/consultaIndividual"
         try:
+            print(f"   Enviando cookies: {self.headers['Cookie'][:100]}...")
+            print(f"   User-Agent: {self.headers['User-Agent']}")
             logger.info(f"Consultando comprobante: {datos.get('numeroSerie')}-{datos.get('numero')}")
             
             headers_temp = self.headers.copy()
