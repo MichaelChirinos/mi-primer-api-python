@@ -64,4 +64,4 @@ ENV CHROME_DRIVER_PATH=/usr/local/bin/chromedriver
 
 EXPOSE 10000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--timeout", "300", "app:app"]
