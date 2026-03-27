@@ -6,8 +6,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-ENVIRONMENT = os.getenv('ENVIRONMENT', 'LOCAL')
-
 class SunatSession:
     _driver = None
 
@@ -84,7 +82,6 @@ class SunatSession:
             print(f"🚀 Iniciando navegador en modo {ENVIRONMENT}...")
             
             if ENVIRONMENT == "LOCAL":
-                # ========== CONFIGURACIÓN LOCAL (EDGE) ==========
                 from selenium.webdriver.edge.options import Options as EdgeOptions
                 options = EdgeOptions()
                 options.add_argument('--disable-blink-features=AutomationControlled')
@@ -100,14 +97,26 @@ class SunatSession:
                 print("   ✅ Edge iniciado (modo local)")
                 
             else:
-                # ========== CONFIGURACIÓN PRODUCCIÓN (CHROME HEADLESS) ==========
                 from selenium.webdriver.chrome.options import Options as ChromeOptions
                 from selenium.webdriver.chrome.service import Service
-                # Ya no necesitamos ChromeDriverManager en producción
+                
+                # Verificar que los binarios existen
+                chrome_path = "/usr/bin/google-chrome"
+                chromedriver_path = "/usr/local/bin/chromedriver"
+                
+                if not os.path.exists(chrome_path):
+                    print(f"   ❌ Chrome no encontrado en {chrome_path}")
+                    raise Exception(f"Chrome binary not found at {chrome_path}")
+                
+                if not os.path.exists(chromedriver_path):
+                    print(f"   ❌ ChromeDriver no encontrado en {chromedriver_path}")
+                    raise Exception(f"ChromeDriver not found at {chromedriver_path}")
+                
+                print(f"   Chrome encontrado en: {chrome_path}")
+                print(f"   ChromeDriver encontrado en: {chromedriver_path}")
                 
                 options = ChromeOptions()
-                # RUTA CRÍTICA: Indicamos dónde está el binario de Chrome instalado por el Dockerfile
-                options.binary_location = "/usr/bin/google-chrome"
+                options.binary_location = chrome_path
                 
                 options.add_argument("--headless=new")
                 options.add_argument("--no-sandbox")
@@ -116,15 +125,12 @@ class SunatSession:
                 options.add_argument("--disable-blink-features=AutomationControlled")
                 options.add_argument("--window-size=1920,1080")
                 options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-                
                 options.add_experimental_option("excludeSwitches", ["enable-automation"])
                 options.add_experimental_option('useAutomationExtension', False)
                 
-                # RUTA CRÍTICA: Usamos el ChromeDriver que descargamos manualmente en el Dockerfile
-                service = Service("/usr/local/bin/chromedriver")
-                
+                service = Service(chromedriver_path)
                 SunatSession._driver = webdriver.Chrome(service=service, options=options)
-                print("   ✅ Chrome Headless iniciado (Rutas fijas en producción)")
+                print("   ✅ Chrome Headless iniciado (modo producción)")
             
             driver = SunatSession._driver
             wait = WebDriverWait(driver, 20)
