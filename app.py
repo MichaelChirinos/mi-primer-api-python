@@ -11,6 +11,7 @@ import json
 import re
 import threading
 import time
+import base64
 
 from modules.sunat_session import SunatSession
 from modules.sunat_api import SunatAPI
@@ -112,168 +113,162 @@ def comparar():
     print("\n=== NUEVA PETICIÓN A /comparar ===")
     
     temp_paths = []
+    pdf_content = None
+    xml_content = None
+    pdf_filename = "archivo_sap.pdf"
+    xml_filename = "archivo_sap.xml"
+
     try:
-        # Verificar archivos
-        if 'pdf' not in request.files:
-            return jsonify({'error': 'No se encontró el archivo PDF'}), 400
-        if 'xml' not in request.files:
-            return jsonify({'error': 'No se encontró el archivo XML'}), 400
+        # 1. DETERMINAR EL ORIGEN DE LOS DATOS (JSON de Power Automate o Files de Manual/SharePoint)
+        if request.is_json:
+            print("📦 Recibido formato JSON (Base64 desde Power Automate/SAP)")
+            data = request.get_json()
+            
+            # Extraemos de la estructura enviada por el SP de SQL
+            archivos = data.get('archivos', {})
+            info_sap = data.get('info_sap', {})
+            
+            if 'pdf_base64' in archivos and 'xml_base64' in archivos:
+                try:
+                    pdf_content = base64.b64decode(archivos['pdf_base64'])
+                    xml_content = base64.b64decode(archivos['xml_base64'])
+                    # Usamos los nombres que vienen del SQL o genéricos
+                    pdf_filename = archivos.get('pdf_name', 'factura_sap.pdf').replace('/', '')
+                    xml_filename = archivos.get('xml_name', 'factura_sap.xml').replace('/', '')
+                except Exception as e:
+                    return jsonify({'error': f'Error decodificando Base64: {str(e)}'}), 400
+            else:
+                return jsonify({'error': 'Faltan campos pdf_base64 o xml_base64 en el JSON'}), 400
         
-        pdf_file = request.files['pdf']
-        xml_file = request.files['xml']
+        elif 'pdf' in request.files and 'xml' in request.files:
+            print("📎 Recibido formato multipart/form-data (Carga manual)")
+            pdf_file = request.files['pdf']
+            xml_file = request.files['xml']
+            pdf_filename = pdf_file.filename
+            xml_filename = xml_file.filename
+            pdf_content = pdf_file.read()
+            xml_content = xml_file.read()
         
-        print(f"PDF recibido: {pdf_file.filename}")
-        print(f"XML recibido: {xml_file.filename}")
-        
-        # Validar extensiones
-        if not pdf_file.filename.lower().endswith('.pdf'):
-            return jsonify({'error': 'El primer archivo debe ser PDF'}), 400
-        if not xml_file.filename.lower().endswith('.xml'):
-            return jsonify({'error': 'El segundo archivo debe ser XML'}), 400
-        
-        # Leer contenidos
-        pdf_content = pdf_file.read()
-        xml_content = xml_file.read()
-        
-        # Guardar temporales
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf', mode='wb') as tmp:
-            tmp.write(pdf_content)
-            pdf_path = tmp.name
+        else:
+            return jsonify({'error': 'No se encontraron archivos PDF y XML en la petición'}), 400
+
+        # 2. CREAR ARCHIVOS TEMPORALES PARA PROCESAMIENTO
+        # Necesitamos archivos físicos para que fitz (PyMuPDF) pueda leerlos
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
+            tmp_pdf.write(pdf_content)
+            pdf_path = tmp_pdf.name
             temp_paths.append(pdf_path)
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xml', mode='wb') as tmp:
-            tmp.write(xml_content)
-            xml_path = tmp.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xml') as tmp_xml:
+            tmp_xml.write(xml_content)
+            xml_path = tmp_xml.name
             temp_paths.append(xml_path)
-        
-        # Extraer texto
-        print("\nExtrayendo texto...")
+
+        # 3. EXTRACCIÓN DE TEXTO DEL PDF
+        print(f"📄 Extrayendo texto de: {pdf_filename}")
         pdf_text = ""
-        doc = fitz.open(pdf_path)
-        for page in doc:
-            pdf_text += page.get_text()
-        doc.close()
+        with fitz.open(pdf_path) as doc:
+            for page in doc:
+                pdf_text += page.get_text()
         
-        xml_text = ""
-        with open(xml_path, 'r', encoding='utf-8') as f:
-            xml_text = f.read()
-        
-        print(f"PDF: {len(pdf_text)} caracteres")
-        print(f"XML: {len(xml_text)} caracteres")
-        
-        # Limitar textos
+        # 4. EXTRACCIÓN DE TEXTO DEL XML
+        print(f"🧬 Extrayendo texto de: {xml_filename}")
+        try:
+            xml_text = xml_content.decode('utf-8')
+        except UnicodeDecodeError:
+            xml_text = xml_content.decode('latin-1')
+
+        # Limitamos el texto para no exceder el contexto de Groq (20k caracteres es seguro)
         pdf_limitado = pdf_text[:20000]
         xml_limitado = xml_text[:20000]
-        
-        # ============================================
-        # PROMPT: Comparación + Extracción de datos
-        # ============================================
+
+        # 5. CONSTRUCCIÓN DEL PROMPT PARA GROQ
         prompt_unificado = f"""
-        Eres un auditor de facturación electrónica peruana.
+        Eres un auditor de facturación electrónica peruana experto en SAP Business One.
 
-        **ARCHIVOS**
-        - PDF: {pdf_file.filename}
-        - XML: {xml_file.filename}
+        **CONTEXTO DE ARCHIVOS**
+        - Archivo PDF: {pdf_filename}
+        - Archivo XML: {xml_filename}
 
-        **CONTENIDO PDF** (primeros 20000 caracteres):
+        **CONTENIDO EXTRAÍDO DEL PDF:**
         {pdf_limitado}
 
-        **CONTENIDO XML** (primeros 20000 caracteres):
+        **CONTENIDO EXTRAÍDO DEL XML:**
         {xml_limitado}
 
-        Realiza DOS tareas y responde EXACTAMENTE con este formato:
+        **TAREA:**
+        Compara los datos del PDF visual contra los datos estructurales del XML. 
+        Verifica RUC emisor, Serie-Número, Fecha, Moneda y Monto Total.
+
+        Responde EXACTAMENTE con este formato:
 
         ===ANALISIS===
-        [Aquí tu análisis en markdown]
+        [Tu análisis detallado de discrepancias o coincidencias en markdown]
 
         ===DATOS_SUNAT===
         {{
             "numRuc": "RUC del emisor",
             "codComp": "01",
-            "numeroSerie": "SOLO LA SERIE (ejemplo: FF01, F001, B001)",
-            "numero": "SOLO EL NÚMERO (ejemplo: 17763, sin la serie)",
+            "numeroSerie": "Serie (ej: F001)",
+            "numero": "Número (ej: 1234)",
             "fechaEmision": "DD/MM/YYYY",
             "monto": "Monto total",
             "tiene_discrepancias": true/false
         }}
-
-        **REGLAS IMPORTANTES:**
-        1. En el análisis, compara línea por línea ambos archivos
-        2. Lista campos que coinciden y discrepancias
-        3. Da veredicto final: APROBADA/REVISAR/RECHAZADA
-        4. En DATOS_SUNAT, extrae los datos del XML (prioridad)
-        5. numeroSerie y numero deben ir SEPARADOS
-        6. Si el comprobante es "FF01-17763" → serie="FF01", numero="17763"
-        7. NO incluyas el guión en el campo numero
-        8. Si algún dato no existe, pon "NO_ENCONTRADO"
-        9. "tiene_discrepancias" debe ser TRUE si hay alguna diferencia, FALSE si todo coincide
         """
-        
-        print("\n🤖 Llamando a Groq...")
+
+        print("🤖 Llamando a Groq (Llama 3.3 70B)...")
         completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "Eres un auditor experto. Responde EXACTAMENTE con el formato solicitado."},
+                {"role": "system", "content": "Eres un auditor de control de calidad de facturas. Tu precisión es vital para la contabilidad."},
                 {"role": "user", "content": prompt_unificado}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.3,
-            max_tokens=5000
+            temperature=0.1, # Temperatura baja para mayor precisión en datos
+            max_tokens=3000
         )
-        
-        respuesta = completion.choices[0].message.content
-        
-        # Extraer análisis y datos
-        resultado_analisis = respuesta
-        datos_extraidos = None
+
+        respuesta_ia = completion.choices[0].message.content
+
+        # 6. PARSEAR RESPUESTA DE LA IA
+        resultado_analisis = "Error al procesar el análisis"
+        datos_extraidos = {}
         tiene_discrepancias = True
-        
-        if '===DATOS_SUNAT===' in respuesta:
-            partes = respuesta.split('===DATOS_SUNAT===')
+
+        if '===DATOS_SUNAT===' in respuesta_ia:
+            partes = respuesta_ia.split('===DATOS_SUNAT===')
             resultado_analisis = partes[0].replace('===ANALISIS===', '').strip()
             
-            json_texto = partes[1].strip()
-            try:
-                json_match = re.search(r'\{.*\}', json_texto, re.DOTALL)
-                if json_match:
-                    datos_extraidos = json.loads(json_match.group())
+            json_str = re.search(r'\{.*\}', partes[1], re.DOTALL)
+            if json_str:
+                try:
+                    datos_extraidos = json.loads(json_str.group())
                     tiene_discrepancias = datos_extraidos.get('tiene_discrepancias', True)
-                    print(f"✅ Datos extraídos: {datos_extraidos}")
-            except Exception as e:
-                print(f"Error parseando JSON: {e}")
-                datos_extraidos = {
-                    "numRuc": "ERROR_PARSEO",
-                    "codComp": "ERROR_PARSEO",
-                    "numeroSerie": "ERROR_PARSEO",
-                    "numero": "ERROR_PARSEO",
-                    "fechaEmision": "ERROR_PARSEO",
-                    "monto": "ERROR_PARSEO"
-                }
-        
+                except json.JSONDecodeError:
+                    print("❌ Error al decodificar JSON de la IA")
+
+        # 7. RETORNAR RESULTADO UNIFICADO
         return jsonify({
-            'resultado': resultado_analisis,
-            'pdf': pdf_file.filename,
-            'xml': xml_file.filename,
-            'fecha': datetime.now().isoformat(),
-            'tiene_discrepancias': tiene_discrepancias,
-            'datos_extraidos': datos_extraidos if datos_extraidos else {
-                "numRuc": "NO_EXTRAIDO",
-                "codComp": "NO_EXTRAIDO",
-                "numeroSerie": "NO_EXTRAIDO",
-                "numero": "NO_EXTRAIDO",
-                "fechaEmision": "NO_EXTRAIDO",
-                "monto": "NO_EXTRAIDO"
-            }
+            'status': 'success',
+            'pdf_procesado': pdf_filename,
+            'xml_procesado': xml_filename,
+            'analisis_ia': resultado_analisis,
+            'datos_para_sunat': datos_extraidos,
+            'alerta_discrepancia': tiene_discrepancias,
+            'timestamp': datetime.now().isoformat()
         })
-        
+
     except Exception as e:
-        print(f"ERROR: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
-    
+        print(f"❌ ERROR CRÍTICO: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
     finally:
+        # Limpieza de archivos temporales para no llenar el disco
         for path in temp_paths:
-            if path and os.path.exists(path):
+            if os.path.exists(path):
                 try:
                     os.remove(path)
+                    print(f"Cleaned up: {path}")
                 except:
                     pass
 
